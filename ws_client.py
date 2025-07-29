@@ -29,6 +29,30 @@ def to_csv(data, filename='output.csv'):
     print(f"Data successfully written to {filename}")
     return True
 #
+async def recv_with_timeout(websocket, timeout):
+    try:
+        data = await asyncio.wait_for(websocket.recv(), timeout=timeout)
+        return data
+    except asyncio.TimeoutError:
+        print("Timeout occurred while waiting for data")
+    except websockets.ConnectionClosed:
+        print("WebSocket connection closed")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    return None
+#
+async def send_ping_with_timeout(websocket, timeout):
+    try:
+        await asyncio.wait_for(websocket.send(), timeout=timeout)
+        return True
+    except asyncio.TimeoutError:
+        print("Timeout occurred while waiting for data")
+    except websockets.ConnectionClosed:
+        print("WebSocket connection closed")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    return False
+#
 async def subscribe(channel, target_currency="BTC", quote_currency="KRW"):
     """https://docs.coinone.co.kr/reference/public-websocket-1"""
     uri = "wss://stream.coinone.co.kr"
@@ -41,6 +65,10 @@ async def subscribe(channel, target_currency="BTC", quote_currency="KRW"):
     async with websockets.connect(uri) as websocket:
         datetime_start = datetime.now()
         datetime_end = datetime.now()
+        timeout = 60  # seconds
+        response = None
+        print("Connecting to WebSocket...")
+        #
         await websocket.send(request)
         #
         while True:
@@ -55,14 +83,23 @@ async def subscribe(channel, target_currency="BTC", quote_currency="KRW"):
                 #await asyncio.sleep(0.1 - diff_secs)
                 datetime_start = datetime_end
             #
-            response = await websocket.recv()
+            #response = await websocket.recv()
+            response = await recv_with_timeout(websocket, timeout)
+            if response is None:
+                await websocket.send('{"request_type": "PING"}')
+                print("No response received, sending PING")
+                # If no response, send PING and continue the loop
+                await asyncio.sleep(0.1)
+                continue
+                #print("No response received, exiting loop")
+                #break
             response_json = json.loads(response)
             #pprint(response_json)
             if 'data' in response_json and 'last' in response_json['data']:
                 print(diff_secs, 'last:',json.dumps(response_json['data']['last'], indent=2, ensure_ascii=False))
                 print(json.dumps(response_json['data'], indent=2, ensure_ascii=False))
-                #to_csv(response_json['data'], filename=f"{channel}_{target_currency}_{quote_currency}.csv")
-                to_csv(response_json['data'])
+                to_csv(response_json['data'], filename=f"{channel}_{target_currency}_{quote_currency}.csv")
+                #to_csv(response_json['data'])
             if response_json["response_type"] == "ERROR":
                 print("error_code", response_json["error_code"])
             if response_json["response_type"] == "PONG":
@@ -74,7 +111,7 @@ async def subscribe(channel, target_currency="BTC", quote_currency="KRW"):
 async def gather():
     await asyncio.gather(
         #subscribe("TRADE"),
-        subscribe("TICKER", target_currency="ETH", quote_currency="KRW"),
+        subscribe("TICKER", target_currency="XLM", quote_currency="KRW"),
         #subscribe("ORDERBOOK"),
     )
 #
